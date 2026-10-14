@@ -11,7 +11,8 @@ ui_print "    Patching audio_effects config files"
 CFGS="$(find /odm /system /vendor -type f -name "*audio_effects*.conf" -o -name "*audio_effects*.xml")"
 for OFILE in ${CFGS}; do
   FILE="$MODPATH$(echo $OFILE | sed "s|^/vendor|/system/vendor|g")"
-  cp_ch -n $OFILE $FILE
+  mkdir -p "$(dirname "$FILE")"
+  install -m 0644 "$OFILE" "$FILE"
   case $FILE in
     *.conf)
         sed -i "/v4a_standard_re {/,/}/d" $FILE

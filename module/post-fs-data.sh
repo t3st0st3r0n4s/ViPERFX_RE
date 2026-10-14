@@ -19,5 +19,5 @@ done
 
 if [ -d "/odm/etc/" ]; then
   echo "Binding audio_effects.xml to odm partition..."
-  mount -o bind /data/adb/modules/ViPER4Android-RE/odm/etc/audio_effects.xml /odm/etc/audio_effects.xml
+  mount -o bind "$MODPATH/odm/etc/audio_effects.xml" /odm/etc/audio_effects.xml
 fi
