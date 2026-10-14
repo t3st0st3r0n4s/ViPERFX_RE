@@ -28,7 +28,7 @@ The source-build matrix compiles separately for ARM32, ARM64, x86 and x86_64 and
 
 1. GitHub Actions `ViPER4Android r5` on `main` builds the pinned r5 ZIP artifact and independently compiles/comparisons drivers.
 2. Review the ZIP SHA and rebuilt-driver comparison.
-3. To create a **draft** release, manually run `ViPER4Android r5` with `draft_release=true`. The draft ZIP contains the original validated drivers.
-4. Keep the release a draft until the pending cross-device tests meet the intended release scope.
+3. Public release **[v8.0-r5](https://github.com/t3st0st3r0n4s/ViPERFX_RE/releases/tag/v8.0-r5)** was published with owner approval on 2026-10-14, using the exact byte-for-byte tested ZIP. Release asset SHA-256: `94f63d9f912503654475411724b7fe3e85398e57e9eacc61b7ba52b05b675126`.
+4. Cross-device validation remains pending. The release notes explicitly limit the verified device to the S901B; source-built libraries are not substituted.
 
 The runtime module (installer, scripts, libraries and effects registration) is not altered by the CI changes.
