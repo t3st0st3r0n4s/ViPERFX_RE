@@ -6,6 +6,7 @@ import zipfile
 from pathlib import Path
 
 UPSTREAM_SHA = "e1c800985448b748a0d8ee611f741955a8a0ab62cc695dbac6a006ac7ca0bd54"
+TESTED_R5_SHA = "94f63d9f912503654475411724b7fe3e85398e57e9eacc61b7ba52b05b675126"
 PATCHED = {
     "common/install.sh": "ac27edda54133467ed7a78b3bbc4cef190897fa2a92c08dd6ce7bb71d2574e5c",
     "post-fs-data.sh": "a9e68e8e20bc9993217791285d786073d13973068925d6dd0c8558d96e01f2b4",
@@ -61,7 +62,10 @@ def package(source, module_dir, output):
         if z.testzip() is not None:
             die("output ZIP CRC failure")
     print("PASS: original members preserved; only 3 tested r5 file replacements; 4 pinned DSPs")
-    print("r5 package SHA-256:", sha(output.read_bytes()))
+    result_sha = sha(output.read_bytes())
+    if result_sha != TESTED_R5_SHA:
+        die("package differs from the byte-for-byte S901B-tested r5 ZIP: " + result_sha)
+    print("PASS: package matches device-tested r5 ZIP SHA-256:", result_sha)
 
 
 def compare(directory):
