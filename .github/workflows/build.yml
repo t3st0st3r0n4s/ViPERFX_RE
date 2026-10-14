@@ -52,11 +52,15 @@ jobs:
         abi: [armeabi-v7a, arm64-v8a, x86, x86_64]
     steps:
       - uses: actions/checkout@v4
-      - uses: android-actions/setup-android@v3
-      - name: Install NDK
+      - name: Install pinned NDK with GitHub runner Android SDK
         run: |
+          set -euo pipefail
+          command -v sdkmanager
+          : "${ANDROID_HOME:?GitHub-hosted Android SDK not found}"
           sdkmanager --install "ndk;$NDK_VERSION"
-          echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/$NDK_VERSION" >> "$GITHUB_ENV"
+          NDK_PATH="$ANDROID_HOME/ndk/$NDK_VERSION"
+          test -f "$NDK_PATH/build/cmake/android.toolchain.cmake"
+          echo "ANDROID_NDK_HOME=$NDK_PATH" >> "$GITHUB_ENV"
       - name: Compile for comparison only
         run: |
           cmake -S . -B build/${{ matrix.abi }} \
