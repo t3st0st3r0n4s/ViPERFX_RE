@@ -1,151 +1,122 @@
-name: build
+name: ViPER4Android r5
 
-on: [push, pull_request]
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      draft_release:
+        description: 'Prepare draft v8.0-r5 using the device-tested original drivers'
+        type: boolean
+        required: false
+        default: false
+
+permissions:
+  contents: read
 
 env:
   NDK_VERSION: 27.2.12479018
   MIN_SDK_VERSION: 21
 
 jobs:
-  build:
+  verified-package:
+    name: Reproduce device-tested r5 payload
     runs-on: ubuntu-latest
-
-    strategy:
-      matrix:
-        abi: ['armeabi-v7a', 'arm64-v8a', 'x86', 'x86_64']
-
     steps:
-      # Checkout the repository to access the source code
       - uses: actions/checkout@v4
-
-      # Install Android SDK command-line tools
-      - name: Install Android SDK and NDK
+      - name: Download pinned upstream ViPER 8.0 ZIP
         run: |
-          # Create the directory for SDK command-line tools
-          mkdir -p $HOME/android-sdk/cmdline-tools
-          cd $HOME/android-sdk
-
-          # Download and unzip the command-line tools
-          wget https://dl.google.com/android/repository/commandlinetools-linux-8512546_latest.zip
-          unzip commandlinetools-linux-8512546_latest.zip -d cmdline-tools
-
-          # Rename the extracted directory to 'latest'
-          mv cmdline-tools/cmdline-tools cmdline-tools/latest
-
-          # Update PATH for sdkmanager
-          export PATH=$HOME/android-sdk/cmdline-tools/latest/bin:$PATH
-
-          # Accept licenses
-          yes | sdkmanager --licenses
-
-          # Install NDK
-          sdkmanager --install "ndk;${{ env.NDK_VERSION }}"
-
-          # Ensure the NDK is installed in a predictable location
-          NDK_PATH="$HOME/android-sdk/ndk/${{ env.NDK_VERSION }}"
-          if [ -d "$NDK_PATH" ]; then
-            echo "NDK is already installed at $NDK_PATH"
-          else
-            echo "NDK installation failed"
-            exit 1
-          fi
-
-      # Set the environment variable for the NDK path
-      - name: Set NDK environment variable
-        run: echo "ANDROID_NDK_HOME=$HOME/android-sdk/ndk/${{ env.NDK_VERSION }}" >> $GITHUB_ENV
-
-      # Configure and build the project using CMake
-      - name: Build with CMake
+          curl --fail --location --retry 3 --silent --show-error \
+            https://github.com/WSTxda/ViPERFX_RE/releases/download/v8.0/viper4android_module.zip \
+            --output original-v8.0.zip
+      - name: Package only the three validated r5 file replacements
         run: |
-          cmake -DCMAKE_TOOLCHAIN_FILE=$ANDROID_NDK_HOME/build/cmake/android.toolchain.cmake -DANDROID_ABI=${{ matrix.abi }} -DANDROID_PLATFORM=android-${{ env.MIN_SDK_VERSION }} -DANDROID_ARM_NEON=TRUE .
-          cmake --build . -- -j$(nproc)
-
-      # Rename the built shared library for each ABI
-      - name: Rename output
-        run: |
-          mv libv4a_re.so libv4a_re_${{ matrix.abi }}.so
-
-      # Upload the compiled shared libraries as artifacts
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+          python3 ci/verify_r5.py package original-v8.0.zip module viper4android_module-r5.zip
+          sha256sum viper4android_module-r5.zip | tee package-sha256.txt
+          cat package-sha256.txt >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
         with:
-          name: compiled-binaries-${{ matrix.abi }}
-          path: libv4a_re_*.so
+          name: ViPER4Android-8.0-r5-tested-driver-payload
+          path: |
+            viper4android_module-r5.zip
+            package-sha256.txt
+          if-no-files-found: error
 
-  package:
-    needs: build
+  source-build:
+    name: Independently rebuild ${{ matrix.abi }} (comparison only)
     runs-on: ubuntu-latest
-
+    strategy:
+      fail-fast: false
+      matrix:
+        abi: [armeabi-v7a, arm64-v8a, x86, x86_64]
     steps:
-      # Checkout the repository to access the source code
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      # Download the compiled binaries from the 'build' workflow
-      - name: Download compiled libraries
-        uses: actions/download-artifact@v4
-        with:
-          name: compiled-binaries-arm64-v8a
-          path: compiled/
-      - uses: actions/download-artifact@v4
-        with:
-          name: compiled-binaries-armeabi-v7a
-          path: compiled/
-      - uses: actions/download-artifact@v4
-        with:
-          name: compiled-binaries-x86
-          path: compiled/
-      - uses: actions/download-artifact@v4
-        with:
-          name: compiled-binaries-x86_64
-          path: compiled/
-
-      # Prepare the directory structure for the module and copy the ABI-specific libraries
-      - name: Prepare ViPER4Android Module
+      - uses: actions/checkout@v4
+      - uses: android-actions/setup-android@v3
+      - name: Install NDK
         run: |
-          mkdir -p module/common/files
-          cp compiled/libv4a_re_armeabi-v7a.so module/common/files/
-          cp compiled/libv4a_re_arm64-v8a.so module/common/files/
-          cp compiled/libv4a_re_x86.so module/common/files/
-          cp compiled/libv4a_re_x86_64.so module/common/files/
-
-      # Zip the module directory
-      - name: Zip ViPER4Android Module
+          sdkmanager --install "ndk;$NDK_VERSION"
+          echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/$NDK_VERSION" >> "$GITHUB_ENV"
+      - name: Compile for comparison only
         run: |
-          cd module
-          zip -r ../viper4android_module.zip ./
-
-      # Upload the zip module as an artifact
-      - name: Upload ViPER4Android Module
-        uses: actions/upload-artifact@v4
+          cmake -S . -B build/${{ matrix.abi }} \
+            -DCMAKE_TOOLCHAIN_FILE="$ANDROID_NDK_HOME/build/cmake/android.toolchain.cmake" \
+            -DANDROID_ABI=${{ matrix.abi }} \
+            -DANDROID_PLATFORM=android-$MIN_SDK_VERSION \
+            -DANDROID_ARM_NEON=TRUE
+          cmake --build build/${{ matrix.abi }} --parallel 2
+          mkdir -p rebuilt
+          cp build/${{ matrix.abi }}/libv4a_re.so rebuilt/libv4a_re_${{ matrix.abi }}.so
+      - uses: actions/upload-artifact@v4
         with:
-          name: ViPER4Android_Module
-          path: viper4android_module.zip
+          name: source-built-${{ matrix.abi }}
+          path: rebuilt/*.so
+          if-no-files-found: error
 
-  release:
-    needs: package
+  compare-rebuild:
+    name: Compare rebuilt DSPs against tested binaries
+    needs: source-build
     runs-on: ubuntu-latest
     steps:
-      # Checkout the repository to access the source code
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      # Download the zip module from the 'package' workflow
-      - name: Download ViPER4Android Module
-        uses: actions/download-artifact@v4
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
         with:
-          name: ViPER4Android_Module
-          path: .
-
-      # Create a new release with module zip
-      - name: Create GitHub Release and Upload Asset
-        uses: softprops/action-gh-release@v2
+          pattern: source-built-*
+          merge-multiple: true
+          path: rebuilt/
+      - name: Compare ABI binaries
+        run: |
+          python3 ci/verify_r5.py compare rebuilt/ | tee driver-comparison.txt
+          cat driver-comparison.txt >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
         with:
-          tag_name: v8.0
-          name: ViPER4Android Module
+          name: r5-rebuilt-driver-comparison
+          path: driver-comparison.txt
+
+  draft-release:
+    name: Draft r5 release (manual request only)
+    if: github.event_name == 'workflow_dispatch' && inputs.draft_release && github.ref == 'refs/heads/main'
+    needs: verified-package
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: ViPER4Android-8.0-r5-tested-driver-payload
+          path: dist/
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v8.0-r5
+          name: ViPER4Android RE Fork v8.0-r5
+          target_commitish: ${{ github.sha }}
           draft: true
           prerelease: false
-          files: viper4android_module.zip
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          
+          generate_release_notes: false
+          body: |
+            Original ViPER 8.0 drivers; only two minimal installer fixes and the r5 version label.
+            S901B / TachyonOS Android 15: user-tested audio processing PASS.
+            RK3588 and earlier Android generations: not yet validated.
+            New source-built DSPs are diagnostic only and are never substituted into this ZIP.
+          files: dist/viper4android_module-r5.zip
+          fail_on_unmatched_files: true
